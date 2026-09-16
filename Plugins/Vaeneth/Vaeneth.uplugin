@@ -1,0 +1,29 @@
+{
+    "FileVersion": 3,
+    "Version": 1,
+    "VersionName": "1.0.0",
+    "EngineVersion": "5.8.0",
+    "FriendlyName": "Vaeneth Music",
+    "Description": "State-driven adaptive music for Unreal Engine 5. Horizontal re-sequencing, vertical stem remixing and priority arbitration, authored in Blueprint. Includes a seven-station demo map and CC0 demo audio.",
+    "Category": "Audio",
+    "CreatedBy": "Vaeneth",
+    "CanContainContent": true,
+    "IsBetaVersion": false,
+    "IsExperimentalVersion": false,
+    "Installed": false,
+    "Modules": [
+        {
+            "Name": "VaenethCore",
+            "Type": "Runtime",
+            "LoadingPhase": "PreDefault",
+            "PlatformAllowList": [
+                "Win64"
+            ]
+        }
+    ],
+    "CreatedByURL": "https://github.com/alexandre5674",
+    "DocsURL": "https://github.com/alexandre5674/Vaeneth-Core",
+    "MarketplaceURL": "",
+    "SupportURL": "https://github.com/alexandre5674/Vaeneth-Core/issues",
+    "EnabledByDefault": true
+}
