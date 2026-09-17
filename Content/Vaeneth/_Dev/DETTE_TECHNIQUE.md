@@ -56,3 +56,12 @@
 ---
 
 > **Note :** Cette documentation est destinée aux développeurs techniques et sera mise à jour régulièrement en fonction des avancées du projet.
+
+
+## BPFL_BalanceCurves — chemins de repli
+Date : 17 septembre 2026
+Etat : les 5 fonctions sont PURES avec references dures et un fallback implicite de 1.0. Elles fonctionnent tant que les 5 courbes existent et sont assignees.
+Manque : fonctions impures, branches Is Valid, sortie bUsedFallback, Print String Warning, valeurs de repli differenciees (1.0 / 100.0 / 0.05 / 6.0 / 1.0)
+Raison du report : blocage du backend Blueprint (Failed to fetch, NoneType). Aucun systeme n'est bloque : le chemin de repli ne se declenche que si une courbe disparait.
+Echeance : avant le premier combat jouable du palier 1.
+
