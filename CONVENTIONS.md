@@ -33,3 +33,7 @@ Combat movement comes from animation root motion, not coded translation.
 - BP_Vaen Character Movement uses Root Motion from Montages Only.
 - Every combat montage attack, dodge, stagger, and execution has Enable Root Motion true and uses the FullBody slot.
 - Locomotion animations remain in-place.
+
+
+## Shoulder Camera / Combat Space
+With a shoulder-camera arm length of 200 cm, the minimum width of a combat space is 500 cm. Below 500 cm, the camera collides with walls and combat readability degrades. All levels must respect this constraint.

@@ -36,7 +36,7 @@ public:
 	virtual void OnComponentCreated() override;
 	virtual void PostDuplicate(bool bDuplicateForPIE) override;
 	virtual TStructOnScope<FActorComponentInstanceData> GetComponentInstanceData() const override;
-	void ApplyComponentInstanceData(FPersistentIDComponentInstanceData* ComponentInstanceData);
+	void ApplyComponentInstanceData(struct FPersistentIDComponentInstanceData* ComponentInstanceData);
 
 #if WITH_EDITOR
 	/** Covers editor copy/paste and actor duplication paths that skip PostDuplicate on components. */

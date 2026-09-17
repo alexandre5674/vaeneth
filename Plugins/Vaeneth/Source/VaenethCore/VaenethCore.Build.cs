@@ -13,7 +13,8 @@ public class VaenethCore : ModuleRules
 		{
 			"Core",
 			"CoreUObject",
-			"Engine"
+			"Engine",
+			"GameplayTags"
 		});
 
 		if (Target.bBuildEditor)

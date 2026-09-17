@@ -17,7 +17,7 @@ void UPersistentIDComponent::PostDuplicate(bool bDuplicateForPIE)
 {
 	Super::PostDuplicate(bDuplicateForPIE);
 
-	if (!bDuplicateForPIE)
+	if (!PersistentGuid.IsValid())
 	{
 		RegeneratePersistentID();
 	}
@@ -40,7 +40,7 @@ void UPersistentIDComponent::ApplyComponentInstanceData(FPersistentIDComponentIn
 void UPersistentIDComponent::PostEditImport()
 {
 	Super::PostEditImport();
-	RegeneratePersistentID();
+	EnsurePersistentID();
 }
 #endif
 
