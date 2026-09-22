@@ -17,6 +17,12 @@ void UPersistentIDComponent::PostDuplicate(bool bDuplicateForPIE)
 {
 	Super::PostDuplicate(bDuplicateForPIE);
 
+	// Copie hors PIE : nouvel ID. Duplication du monde par le PIE : on garde l'ID.
+	if (!bDuplicateForPIE)
+	{
+		RegeneratePersistentID();
+	}
+
 	if (!PersistentGuid.IsValid())
 	{
 		RegeneratePersistentID();
@@ -40,6 +46,8 @@ void UPersistentIDComponent::ApplyComponentInstanceData(FPersistentIDComponentIn
 void UPersistentIDComponent::PostEditImport()
 {
 	Super::PostEditImport();
+	// Coller ou dupliquer (Ctrl+D) dans l'editeur : l'ID copie depuis l'original doit etre remplace.
+	RegeneratePersistentID();
 	EnsurePersistentID();
 }
 #endif
