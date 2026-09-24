@@ -5,6 +5,9 @@
 #include "Combat/CombatStateComponent.h"
 #include "Combat/Data/DA_Attack.h"
 #include "Curves/CurveFloat.h"
+#include "Animation/AnimInstance.h"
+#include "Animation/AnimMontage.h"
+#include "Components/SkeletalMeshComponent.h"
 #include "Engine/World.h"
 #include "GameFramework/Actor.h"
 #include "TimerManager.h"
@@ -39,14 +42,11 @@ void UCombatSubsystem::Deinitialize()
             }
         }
 
-        for (TPair<TWeakObjectPtr<AActor>, FTimerHandle>& Pair : AttackRecoveryTimers)
-        {
-            World->GetTimerManager().ClearTimer(Pair.Value);
-        }
     }
 
-    HitStopEntries.Empty();
-    AttackRecoveryTimers.Empty();
+      HitStopEntries.Empty();
+      AttackMontageOwners.Empty();
+      AttackMontageInstances.Empty();
 
     UE_LOG(LogTemp, Log, TEXT("CombatSubsystem deinitialized"));
     Super::Deinitialize();
@@ -105,6 +105,22 @@ bool UCombatSubsystem::BeginTestLightAttack(AActor* Attacker)
         return false;
     }
 
+    UDA_Attack* AttackData = GetTestLightAttackData();
+    UAnimMontage* Montage = AttackData ? AttackData->Montage.LoadSynchronous() : nullptr;
+    if (!Montage)
+    {
+        UE_LOG(LogTemp, Warning, TEXT("CombatSubsystem: montage du coup de test introuvable."));
+        return false;
+    }
+
+    USkeletalMeshComponent* Mesh = Attacker->FindComponentByClass<USkeletalMeshComponent>();
+    UAnimInstance* AnimInstance = Mesh ? Mesh->GetAnimInstance() : nullptr;
+    if (!AnimInstance)
+    {
+        UE_LOG(LogTemp, Warning, TEXT("CombatSubsystem: AnimInstance absente sur %s."), *Attacker->GetName());
+        return false;
+    }
+
     UCombatStateComponent* CombatState = Attacker->FindComponentByClass<UCombatStateComponent>();
     if (!CombatState)
     {
@@ -119,19 +135,21 @@ bool UCombatSubsystem::BeginTestLightAttack(AActor* Attacker)
         return false;
     }
 
-    if (UWorld* World = GetWorld())
-    {
-        const TWeakObjectPtr<AActor> WeakAttacker(Attacker);
-        FTimerHandle& RecoveryTimer = AttackRecoveryTimers.FindOrAdd(WeakAttacker);
-        World->GetTimerManager().ClearTimer(RecoveryTimer);
-        World->GetTimerManager().SetTimer(
-            RecoveryTimer,
-            FTimerDelegate::CreateUObject(this, &UCombatSubsystem::FinishTestLightAttack, WeakAttacker),
-            0.35f,
-            false);
-    }
+      const TWeakObjectPtr<AActor> WeakAttacker(Attacker);
 
-    UE_LOG(LogTemp, Log, TEXT("CombatSubsystem: coup de test accepte pour %s."), *Attacker->GetName());
+      AttackMontageOwners.Add(Montage, WeakAttacker);
+      AttackMontageInstances.Add(Montage, AnimInstance);
+      AnimInstance->OnMontageEnded.AddDynamic(this, &UCombatSubsystem::HandleTestLightAttackMontageEnded);
+
+      const float PlayedLength = AnimInstance->Montage_Play(Montage, 1.0f);
+      if (PlayedLength <= 0.0f)
+      {
+          FinishTestLightAttack(WeakAttacker, Montage);
+          UE_LOG(LogTemp, Warning, TEXT("CombatSubsystem: lecture du montage refusee pour %s."), *Attacker->GetName());
+          return false;
+      }
+
+    UE_LOG(LogTemp, Log, TEXT("CombatSubsystem: coup de test accepte pour %s, duree %.3f s."), *Attacker->GetName(), PlayedLength);
     return true;
 }
 
@@ -144,6 +162,33 @@ UDA_Attack* UCombatSubsystem::GetTestLightAttackData() const
     }
 
     return AttackData;
+}
+
+bool UCombatSubsystem::SetAnimMontageSlot(UAnimMontage* Montage, const FName SlotName)
+{
+    if (!Montage || SlotName.IsNone() || Montage->SlotAnimTracks.Num() == 0)
+    {
+        return false;
+    }
+
+    bool bChanged = false;
+    Montage->Modify();
+
+    for (FSlotAnimationTrack& Track : Montage->SlotAnimTracks)
+    {
+        if (Track.SlotName != SlotName)
+        {
+            Track.SlotName = SlotName;
+            bChanged = true;
+        }
+    }
+
+    if (bChanged)
+    {
+        Montage->MarkPackageDirty();
+    }
+
+    return true;
 }
 
 void UCombatSubsystem::RestoreHitStop(const TWeakObjectPtr<AActor> Actor)
@@ -179,7 +224,7 @@ void UCombatSubsystem::RestoreHitStop(const TWeakObjectPtr<AActor> Actor)
     HitStopEntries.Remove(Actor);
 }
 
-void UCombatSubsystem::FinishTestLightAttack(const TWeakObjectPtr<AActor> Attacker)
+  void UCombatSubsystem::FinishTestLightAttack(const TWeakObjectPtr<AActor> Attacker, UAnimMontage* Montage)
 {
     if (AActor* ValidAttacker = Attacker.Get())
     {
@@ -189,5 +234,39 @@ void UCombatSubsystem::FinishTestLightAttack(const TWeakObjectPtr<AActor> Attack
         }
     }
 
-    AttackRecoveryTimers.Remove(Attacker);
+      for (auto It = AttackMontageOwners.CreateIterator(); It; ++It)
+      {
+          if (It.Value() == Attacker)
+          {
+              if (UAnimInstance* AnimInstance = AttackMontageInstances.FindRef(It.Key()).Get())
+              {
+                  AnimInstance->OnMontageEnded.RemoveDynamic(this, &UCombatSubsystem::HandleTestLightAttackMontageEnded);
+              }
+
+              AttackMontageInstances.Remove(It.Key());
+              It.RemoveCurrent();
+          }
+      }
+
+      if (Montage)
+      {
+          AttackMontageInstances.Remove(Montage);
+      }
+}
+
+void UCombatSubsystem::HandleTestLightAttackMontageEnded(UAnimMontage* Montage, const bool bInterrupted)
+{
+    if (!Montage)
+    {
+        return;
+    }
+
+      const TWeakObjectPtr<AActor>* Attacker = AttackMontageOwners.Find(Montage);
+      if (Attacker)
+      {
+          UE_LOG(LogTemp, Log, TEXT("CombatSubsystem: montage de test termine pour %s, interrompu=%s."),
+              Attacker->IsValid() ? *Attacker->Get()->GetName() : TEXT("<invalid>"),
+              bInterrupted ? TEXT("true") : TEXT("false"));
+          FinishTestLightAttack(*Attacker, Montage);
+      }
 }
