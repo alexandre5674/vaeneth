@@ -230,7 +230,14 @@ void UCombatSubsystem::RestoreHitStop(const TWeakObjectPtr<AActor> Actor)
     {
         if (UCombatStateComponent* CombatState = ValidAttacker->FindComponentByClass<UCombatStateComponent>())
         {
-            CombatState->RequestState(FGameplayTag::RequestGameplayTag(FName(TEXT("State.Combat.Idle")), false));
+            // Ne retombe en Idle que si l'attaque est encore l'etat courant. Un montage
+            // interrompu par une annulation (esquive) termine son blend-out APRES que le
+            // nouvel etat a ete pose : sans ce garde, l'attaque annulee ecraserait Dodging.
+            const FGameplayTag Attacking = FGameplayTag::RequestGameplayTag(CombatSubsystemTags::Attacking, false);
+            if (CombatState->IsInState(Attacking))
+            {
+                CombatState->RequestState(FGameplayTag::RequestGameplayTag(FName(TEXT("State.Combat.Idle")), false));
+            }
         }
     }
 
