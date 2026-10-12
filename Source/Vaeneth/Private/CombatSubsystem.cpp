@@ -45,8 +45,7 @@ void UCombatSubsystem::Deinitialize()
     }
 
       HitStopEntries.Empty();
-      AttackMontageOwners.Empty();
-      AttackMontageInstances.Empty();
+      ActiveAttacks.Empty();
 
     UE_LOG(LogTemp, Log, TEXT("CombatSubsystem deinitialized"));
     Super::Deinitialize();
@@ -105,14 +104,6 @@ bool UCombatSubsystem::BeginTestLightAttack(AActor* Attacker)
         return false;
     }
 
-    UDA_Attack* AttackData = GetTestLightAttackData();
-    UAnimMontage* Montage = AttackData ? AttackData->Montage.LoadSynchronous() : nullptr;
-    if (!Montage)
-    {
-        UE_LOG(LogTemp, Warning, TEXT("CombatSubsystem: montage du coup de test introuvable."));
-        return false;
-    }
-
     USkeletalMeshComponent* Mesh = Attacker->FindComponentByClass<USkeletalMeshComponent>();
     UAnimInstance* AnimInstance = Mesh ? Mesh->GetAnimInstance() : nullptr;
     if (!AnimInstance)
@@ -129,27 +120,81 @@ bool UCombatSubsystem::BeginTestLightAttack(AActor* Attacker)
     }
 
     const FGameplayTag Attacking = FGameplayTag::RequestGameplayTag(CombatSubsystemTags::Attacking, false);
-    if (!Attacking.IsValid() || CombatState->IsInState(Attacking) || !CombatState->RequestState(Attacking))
+    if (!Attacking.IsValid())
+    {
+        return false;
+    }
+
+    const TWeakObjectPtr<AActor> WeakAttacker(Attacker);
+
+    // Deja en attaque : seul un enchainement de combo est possible, pendant la fenetre
+    // d'annulation, et seulement si le coup courant declare une suite.
+    const bool bIsComboLink = CombatState->IsInState(Attacking);
+    UDA_Attack* AttackData = nullptr;
+    UAnimMontage* CurrentMontage = nullptr;
+
+    if (bIsComboLink)
+    {
+        const FActiveAttack* Active = ActiveAttacks.Find(WeakAttacker);
+        UDA_Attack* CurrentData = Active ? Active->AttackData.LoadSynchronous() : nullptr;
+        CurrentMontage = Active ? Active->Montage.Get() : nullptr;
+
+        if (!CombatState->IsCancelWindowOpen() || !CurrentData || CurrentData->NextComboAttack.IsNull())
+        {
+            UE_LOG(LogTemp, Log, TEXT("CombatSubsystem: coup de test refuse pour %s (pas de suite de combo disponible)."), *Attacker->GetName());
+            return false;
+        }
+
+        AttackData = CurrentData->NextComboAttack.LoadSynchronous();
+    }
+    else
+    {
+        AttackData = GetTestLightAttackData();
+    }
+
+    UAnimMontage* Montage = AttackData ? AttackData->Montage.LoadSynchronous() : nullptr;
+    if (!Montage)
+    {
+        UE_LOG(LogTemp, Warning, TEXT("CombatSubsystem: montage introuvable pour %s."), AttackData ? *AttackData->GetName() : TEXT("<aucune donnee>"));
+        return false;
+    }
+
+    // Le suivi se fait par montage : un coup qui s'enchaine sur lui-meme serait pris
+    // pour la fin de l'attaque quand l'ancienne instance se termine.
+    if (bIsComboLink && Montage == CurrentMontage)
+    {
+        UE_LOG(LogTemp, Warning, TEXT("CombatSubsystem: %s s'enchaine sur le meme montage, refuse."), *AttackData->GetName());
+        return false;
+    }
+
+    if (!bIsComboLink && !CombatState->RequestState(Attacking))
     {
         UE_LOG(LogTemp, Log, TEXT("CombatSubsystem: coup de test refuse pour %s."), *Attacker->GetName());
         return false;
     }
 
-      const TWeakObjectPtr<AActor> WeakAttacker(Attacker);
+    // La fenetre du coup precedent est consommee ; le nouveau montage ouvrira la sienne.
+    CombatState->SetCancelWindowOpen(false);
 
-      AttackMontageOwners.Add(Montage, WeakAttacker);
-      AttackMontageInstances.Add(Montage, AnimInstance);
-      AnimInstance->OnMontageEnded.AddDynamic(this, &UCombatSubsystem::HandleTestLightAttackMontageEnded);
+    // Enregistre AVANT Montage_Play : la fin du montage interrompu doit trouver le nouveau
+    // montage comme attaque active et etre ignoree.
+    FActiveAttack& Entry = ActiveAttacks.FindOrAdd(WeakAttacker);
+    Entry.Montage = Montage;
+    Entry.AnimInstance = AnimInstance;
+    Entry.AttackData = AttackData;
+    AnimInstance->OnMontageEnded.AddUniqueDynamic(this, &UCombatSubsystem::HandleTestLightAttackMontageEnded);
 
-      const float PlayedLength = AnimInstance->Montage_Play(Montage, 1.0f);
-      if (PlayedLength <= 0.0f)
-      {
-          FinishTestLightAttack(WeakAttacker, Montage);
-          UE_LOG(LogTemp, Warning, TEXT("CombatSubsystem: lecture du montage refusee pour %s."), *Attacker->GetName());
-          return false;
-      }
+    const float PlayedLength = AnimInstance->Montage_Play(Montage, 1.0f);
+    if (PlayedLength <= 0.0f)
+    {
+        FinishTestLightAttack(WeakAttacker);
+        UE_LOG(LogTemp, Warning, TEXT("CombatSubsystem: lecture du montage refusee pour %s."), *Attacker->GetName());
+        return false;
+    }
 
-    UE_LOG(LogTemp, Log, TEXT("CombatSubsystem: coup de test accepte pour %s, duree %.3f s."), *Attacker->GetName(), PlayedLength);
+    UE_LOG(LogTemp, Log, TEXT("CombatSubsystem: %s %s pour %s, duree %.3f s."),
+        bIsComboLink ? TEXT("enchainement") : TEXT("coup"),
+        *AttackData->GetName(), *Attacker->GetName(), PlayedLength);
     return true;
 }
 
@@ -162,6 +207,19 @@ UDA_Attack* UCombatSubsystem::GetTestLightAttackData() const
     }
 
     return AttackData;
+}
+
+UDA_Attack* UCombatSubsystem::GetActiveAttackData(AActor* Attacker) const
+{
+    if (const FActiveAttack* Active = ActiveAttacks.Find(TWeakObjectPtr<AActor>(Attacker)))
+    {
+        if (UDA_Attack* AttackData = Active->AttackData.LoadSynchronous())
+        {
+            return AttackData;
+        }
+    }
+
+    return GetTestLightAttackData();
 }
 
 bool UCombatSubsystem::SetAnimMontageSlot(UAnimMontage* Montage, const FName SlotName)
@@ -224,8 +282,20 @@ void UCombatSubsystem::RestoreHitStop(const TWeakObjectPtr<AActor> Actor)
     HitStopEntries.Remove(Actor);
 }
 
-  void UCombatSubsystem::FinishTestLightAttack(const TWeakObjectPtr<AActor> Attacker, UAnimMontage* Montage)
+void UCombatSubsystem::FinishTestLightAttack(const TWeakObjectPtr<AActor> Attacker)
 {
+    // Nettoyage AVANT le passage en Idle : le changement d'etat est diffuse et peut
+    // relancer une attaque (entree bufferisee) qu'il ne faut pas effacer ensuite.
+    if (const FActiveAttack* Entry = ActiveAttacks.Find(Attacker))
+    {
+        if (UAnimInstance* AnimInstance = Entry->AnimInstance.Get())
+        {
+            AnimInstance->OnMontageEnded.RemoveDynamic(this, &UCombatSubsystem::HandleTestLightAttackMontageEnded);
+        }
+    }
+
+    ActiveAttacks.Remove(Attacker);
+
     if (AActor* ValidAttacker = Attacker.Get())
     {
         if (UCombatStateComponent* CombatState = ValidAttacker->FindComponentByClass<UCombatStateComponent>())
@@ -240,25 +310,6 @@ void UCombatSubsystem::RestoreHitStop(const TWeakObjectPtr<AActor> Actor)
             }
         }
     }
-
-      for (auto It = AttackMontageOwners.CreateIterator(); It; ++It)
-      {
-          if (It.Value() == Attacker)
-          {
-              if (UAnimInstance* AnimInstance = AttackMontageInstances.FindRef(It.Key()).Get())
-              {
-                  AnimInstance->OnMontageEnded.RemoveDynamic(this, &UCombatSubsystem::HandleTestLightAttackMontageEnded);
-              }
-
-              AttackMontageInstances.Remove(It.Key());
-              It.RemoveCurrent();
-          }
-      }
-
-      if (Montage)
-      {
-          AttackMontageInstances.Remove(Montage);
-      }
 }
 
 void UCombatSubsystem::HandleTestLightAttackMontageEnded(UAnimMontage* Montage, const bool bInterrupted)
@@ -268,12 +319,29 @@ void UCombatSubsystem::HandleTestLightAttackMontageEnded(UAnimMontage* Montage, 
         return;
     }
 
-      const TWeakObjectPtr<AActor>* Attacker = AttackMontageOwners.Find(Montage);
-      if (Attacker)
-      {
-          UE_LOG(LogTemp, Log, TEXT("CombatSubsystem: montage de test termine pour %s, interrompu=%s."),
-              Attacker->IsValid() ? *Attacker->Get()->GetName() : TEXT("<invalid>"),
-              bInterrupted ? TEXT("true") : TEXT("false"));
-          FinishTestLightAttack(*Attacker, Montage);
-      }
+    // Seule la fin du montage ACTIF termine l'attaque. Le montage d'un coup remplace par
+    // la suite du combo se termine aussi (interrompu) : il est ignore.
+    TWeakObjectPtr<AActor> Attacker;
+    bool bFound = false;
+    for (const TPair<TWeakObjectPtr<AActor>, FActiveAttack>& Pair : ActiveAttacks)
+    {
+        if (Pair.Value.Montage.Get() == Montage)
+        {
+            Attacker = Pair.Key;
+            bFound = true;
+            break;
+        }
+    }
+
+    if (!bFound)
+    {
+        UE_LOG(LogTemp, Log, TEXT("CombatSubsystem: montage %s remplace par la suite du combo, fin ignoree."), *Montage->GetName());
+        return;
+    }
+
+    UE_LOG(LogTemp, Log, TEXT("CombatSubsystem: montage %s termine pour %s, interrompu=%s."),
+        *Montage->GetName(),
+        Attacker.IsValid() ? *Attacker->GetName() : TEXT("<invalid>"),
+        bInterrupted ? TEXT("true") : TEXT("false"));
+    FinishTestLightAttack(Attacker);
 }

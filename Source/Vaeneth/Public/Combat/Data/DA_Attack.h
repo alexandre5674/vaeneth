@@ -41,6 +41,10 @@ public:
     UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="Attack")
     FGameplayTagContainer CanCancelInto;
 
+    /** Coup suivant de la chaine, joue si l'attaque est relancee pendant la fenetre d'annulation. Vide = fin du combo. */
+    UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="Attack|Combo")
+    TSoftObjectPtr<UDA_Attack> NextComboAttack;
+
     UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="Attack")
     float HitStopDuration = 0.0f;
 

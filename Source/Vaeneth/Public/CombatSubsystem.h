@@ -4,6 +4,7 @@
 
 #include "CoreMinimal.h"
 #include "Subsystems/WorldSubsystem.h"
+#include "UObject/SoftObjectPtr.h"
 #include "CombatSubsystem.generated.h"
 
     class AActor;
@@ -36,6 +37,10 @@ public:
       UFUNCTION(BlueprintPure, Category="Combat|TestAttack")
       UDA_Attack* GetTestLightAttackData() const;
 
+    /** Donnee du coup en cours pour cet attaquant (suit le combo). Repli sur le coup de test si aucune attaque n'est active. */
+    UFUNCTION(BlueprintPure, Category="Combat|TestAttack")
+    UDA_Attack* GetActiveAttackData(AActor* Attacker) const;
+
         /** Configures all tracks of an animation montage to use the requested slot. */
         UFUNCTION(BlueprintCallable, Category="Combat|Animation")
         static bool SetAnimMontageSlot(UAnimMontage* Montage, FName SlotName);
@@ -47,12 +52,19 @@ public:
         FTimerHandle TimerHandle;
     };
 
+    /** Attaque en cours pour un attaquant : le montage qui fait foi et la donnee du coup (pour la suite du combo). */
+    struct FActiveAttack
+    {
+        TWeakObjectPtr<UAnimMontage> Montage;
+        TWeakObjectPtr<UAnimInstance> AnimInstance;
+        TSoftObjectPtr<UDA_Attack> AttackData;
+    };
+
         TMap<TWeakObjectPtr<AActor>, FHitStopEntry> HitStopEntries;
-        TMap<TWeakObjectPtr<UAnimMontage>, TWeakObjectPtr<AActor>> AttackMontageOwners;
-        TMap<TWeakObjectPtr<UAnimMontage>, TWeakObjectPtr<UAnimInstance>> AttackMontageInstances;
+        TMap<TWeakObjectPtr<AActor>, FActiveAttack> ActiveAttacks;
 
         void RestoreHitStop(TWeakObjectPtr<AActor> Actor);
-        void FinishTestLightAttack(TWeakObjectPtr<AActor> Attacker, UAnimMontage* Montage = nullptr);
+        void FinishTestLightAttack(TWeakObjectPtr<AActor> Attacker);
 
         UFUNCTION()
         void HandleTestLightAttackMontageEnded(UAnimMontage* Montage, bool bInterrupted);

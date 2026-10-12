@@ -104,7 +104,12 @@ bool UCombatStateComponent::IsInState(FGameplayTag State) const
 
 bool UCombatStateComponent::CanInterruptCurrentState_Implementation()
 {
-    return false;
+    return bCancelWindowOpen;
+}
+
+void UCombatStateComponent::SetCancelWindowOpen(const bool bOpen)
+{
+    bCancelWindowOpen = bOpen;
 }
 
 bool UCombatStateComponent::IsValidCombatState(FGameplayTag State) const
@@ -187,6 +192,12 @@ void UCombatStateComponent::ApplyStateChange(FGameplayTag NewState, bool bBroadc
 {
     const FGameplayTag OldState = CurrentState;
     CurrentState = NewState;
+
+    // Une fenetre d'annulation appartient a l'etat qui l'a ouverte.
+    if (OldState != NewState)
+    {
+        bCancelWindowOpen = false;
+    }
     SynchronizeGameplayTags();
 
     if (bBroadcast && OldState != NewState)

@@ -36,9 +36,16 @@ public:
     UFUNCTION(BlueprintPure, Category="Combat|State")
     bool IsInState(FGameplayTag State) const;
 
-    /** Extension point for future attack-cancel windows. False until P1.4. */
+    /** True while the current attack's cancel window is open (see SetCancelWindowOpen). */
     UFUNCTION(BlueprintNativeEvent, BlueprintCallable, Category="Combat|State")
     bool CanInterruptCurrentState();
+
+    /** Opened/closed by the owner when ANS_CancelWindow begins/ends. Reset on every state change. */
+    UFUNCTION(BlueprintCallable, Category="Combat|State")
+    void SetCancelWindowOpen(bool bOpen);
+
+    UFUNCTION(BlueprintPure, Category="Combat|State")
+    bool IsCancelWindowOpen() const { return bCancelWindowOpen; }
 
     UPROPERTY(BlueprintAssignable, Category="Combat|State")
     FCombatStateChangedSignature OnCombatStateChanged;
@@ -48,6 +55,8 @@ protected:
     FGameplayTag CurrentState;
 
 private:
+    bool bCancelWindowOpen = false;
+
     bool IsValidCombatState(FGameplayTag State) const;
     bool IsAllowedTransition(FGameplayTag FromState, FGameplayTag ToState);
     void ApplyStateChange(FGameplayTag NewState, bool bBroadcast);
