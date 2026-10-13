@@ -66,6 +66,5 @@ public:
         void RestoreHitStop(TWeakObjectPtr<AActor> Actor);
         void FinishTestLightAttack(TWeakObjectPtr<AActor> Attacker);
 
-        UFUNCTION()
-        void HandleTestLightAttackMontageEnded(UAnimMontage* Montage, bool bInterrupted);
+        void HandleTestLightAttackMontageEnded(UAnimMontage* Montage, bool bInterrupted, TWeakObjectPtr<AActor> Attacker);
   };

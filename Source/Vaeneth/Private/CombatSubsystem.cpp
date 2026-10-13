@@ -182,8 +182,6 @@ bool UCombatSubsystem::BeginTestLightAttack(AActor* Attacker)
     Entry.Montage = Montage;
     Entry.AnimInstance = AnimInstance;
     Entry.AttackData = AttackData;
-    AnimInstance->OnMontageEnded.AddUniqueDynamic(this, &UCombatSubsystem::HandleTestLightAttackMontageEnded);
-
     const float PlayedLength = AnimInstance->Montage_Play(Montage, 1.0f);
     if (PlayedLength <= 0.0f)
     {
@@ -191,6 +189,12 @@ bool UCombatSubsystem::BeginTestLightAttack(AActor* Attacker)
         UE_LOG(LogTemp, Warning, TEXT("CombatSubsystem: lecture du montage refusee pour %s."), *Attacker->GetName());
         return false;
     }
+
+    // Fin liee a CET attaquant : plusieurs acteurs peuvent jouer le meme montage
+    // (le Grunt reutilise le coup 1 de Vaen). Un delegue global ne saurait pas lequel termine.
+    FOnMontageEnded EndDelegate;
+    EndDelegate.BindUObject(this, &UCombatSubsystem::HandleTestLightAttackMontageEnded, WeakAttacker);
+    AnimInstance->Montage_SetEndDelegate(EndDelegate, Montage);
 
     UE_LOG(LogTemp, Log, TEXT("CombatSubsystem: %s %s pour %s, duree %.3f s."),
         bIsComboLink ? TEXT("enchainement") : TEXT("coup"),
@@ -286,14 +290,6 @@ void UCombatSubsystem::FinishTestLightAttack(const TWeakObjectPtr<AActor> Attack
 {
     // Nettoyage AVANT le passage en Idle : le changement d'etat est diffuse et peut
     // relancer une attaque (entree bufferisee) qu'il ne faut pas effacer ensuite.
-    if (const FActiveAttack* Entry = ActiveAttacks.Find(Attacker))
-    {
-        if (UAnimInstance* AnimInstance = Entry->AnimInstance.Get())
-        {
-            AnimInstance->OnMontageEnded.RemoveDynamic(this, &UCombatSubsystem::HandleTestLightAttackMontageEnded);
-        }
-    }
-
     ActiveAttacks.Remove(Attacker);
 
     if (AActor* ValidAttacker = Attacker.Get())
@@ -312,30 +308,14 @@ void UCombatSubsystem::FinishTestLightAttack(const TWeakObjectPtr<AActor> Attack
     }
 }
 
-void UCombatSubsystem::HandleTestLightAttackMontageEnded(UAnimMontage* Montage, const bool bInterrupted)
+void UCombatSubsystem::HandleTestLightAttackMontageEnded(UAnimMontage* Montage, const bool bInterrupted, const TWeakObjectPtr<AActor> Attacker)
 {
-    if (!Montage)
+    // Seule la fin du montage ACTIF de cet attaquant termine l'attaque. Le montage d'un coup
+    // remplace par la suite du combo se termine aussi (interrompu) : il est ignore.
+    const FActiveAttack* Entry = ActiveAttacks.Find(Attacker);
+    if (!Montage || !Entry || Entry->Montage.Get() != Montage)
     {
-        return;
-    }
-
-    // Seule la fin du montage ACTIF termine l'attaque. Le montage d'un coup remplace par
-    // la suite du combo se termine aussi (interrompu) : il est ignore.
-    TWeakObjectPtr<AActor> Attacker;
-    bool bFound = false;
-    for (const TPair<TWeakObjectPtr<AActor>, FActiveAttack>& Pair : ActiveAttacks)
-    {
-        if (Pair.Value.Montage.Get() == Montage)
-        {
-            Attacker = Pair.Key;
-            bFound = true;
-            break;
-        }
-    }
-
-    if (!bFound)
-    {
-        UE_LOG(LogTemp, Log, TEXT("CombatSubsystem: montage %s remplace par la suite du combo, fin ignoree."), *Montage->GetName());
+        UE_LOG(LogTemp, Log, TEXT("CombatSubsystem: montage %s remplace par la suite du combo, fin ignoree."), Montage ? *Montage->GetName() : TEXT("<null>"));
         return;
     }
 
